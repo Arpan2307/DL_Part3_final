@@ -9,7 +9,7 @@ import os
 import json
 
 def train(args):
-    seed_list = copy.deepcopy(args["seed"])
+    seed_list = args["seed"] if isinstance(args["seed"], list) else [args["seed"]]
     device = copy.deepcopy(args["device"])
 
     for seed in seed_list:
@@ -89,17 +89,22 @@ def _train(args):
         model.after_task()
         if args["is_task0"] :
             break 
+
 def _set_device(args):
     device_type = args["device"]
     gpus = []
 
-    for device in device_type:
-        if device_type == -1:
-            device = torch.device("cpu")
+    for dev in device_type:
+        # Use a different variable name
+        if isinstance(dev, str) and dev.startswith("cuda:"):
+            gpu_device = torch.device(dev)  # Use the string as is
+        elif dev == -1:
+            gpu_device = torch.device("cpu")
         else:
-            device = torch.device("cuda:{}".format(device))
+            gpu_device = torch.device(f"cuda:{dev}")
 
-        gpus.append(device)
+
+        gpus.append(gpu_device)
 
     args["device"] = gpus
 
@@ -148,6 +153,9 @@ def plot_temperature_vs_forgetting(results):
 
 # Example usage
 if __name__ == "__main__":
+    with open("./exps/finetune.json", "r") as f:
+        args = json.load(f)
+
     temperatures = [0.08, 0.2, 0.7]
     results = run_temperature_experiments(args, temperatures)
     plot_temperature_vs_forgetting(results)  # Placeholder for plotting function

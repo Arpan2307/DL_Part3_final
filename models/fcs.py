@@ -125,10 +125,14 @@ class FCS(BaseLearner):
             detail = p.split('/')
             l = "{}_{}_{}_{}.pkl".format('fcs',detail[-3],detail[-2],self._cur_task)
 
-            l = os.path.join(p,l)
-            print('load from {}'.format(l))
-            self._network.load_state_dict(torch.load(l)["model_state_dict"],strict=False)
-            resume = True
+            l = os.path.join(p, l)
+            if not os.path.exists(l):
+                logging.warning(f"Checkpoint file {l} not found. Skipping loading.")
+                resume = False
+            else:
+                print(f'Loading from {l}')
+                self._network.load_state_dict(torch.load(l)["model_state_dict"], strict=False)
+                resume = True
 
         self._network.to(self._device)
 
@@ -182,33 +186,28 @@ class FCS(BaseLearner):
             self._radius = np.sqrt(np.mean(self._radiuses))
     
   
+
     def _train_function(self, train_loader, test_loader, optimizer, scheduler):
         prog_bar = tqdm(range(self._epoch_num))
         for _, epoch in enumerate(prog_bar):
             self._network.train()
-            losses = 0.
-            losses_clf, losses_fkd, losses_proto, losses_transfer = 0., 0., 0., 0.  # Removed losses_contrast
+            losses_clf = 0.0
             correct, total = 0, 0
 
             for i, instance in enumerate(train_loader):
                 (_, inputs, targets, inputs_aug) = instance
-                inputs, targets = inputs.to(
-                    self._device, non_blocking=True), targets.to(self._device, non_blocking=True)
-                inputs_aug = inputs_aug.to(self._device, non_blocking=True)
-
-                # Removed any computation or usage of self.contrast_loss here
+                inputs, targets = inputs.to(self._device, non_blocking=True), targets.to(self._device, non_blocking=True)
 
                 optimizer.zero_grad()
                 outputs = self._network(inputs)
-                loss_clf = F.cross_entropy(outputs, targets)
+                logits = outputs["logits"]  # Extract logits from the dictionary
+                loss_clf = F.cross_entropy(logits, targets)
                 losses_clf += loss_clf.item()
 
-                # Combine other losses if necessary (excluding contrastive loss)
-                total_loss = loss_clf  # Adjusted to exclude contrastive loss
-                total_loss.backward()
+                loss_clf.backward()
                 optimizer.step()
 
-                _, predicted = outputs.max(1)
+                _, predicted = logits.max(1)
                 correct += predicted.eq(targets).sum().item()
                 total += targets.size(0)
 
@@ -453,7 +452,7 @@ class FCS(BaseLearner):
 
         return np.concatenate(y_pred), np.concatenate(y_true)  
     
-    def eval_task(only_new=False,only_old = False):
+    def eval_task(self,only_new=False,only_old = False):
         y_pred, y_true = self._eval_cnn(self.test_loader,only_new=only_new,only_old=only_old)
 
         cnn_accy = self._evaluate(y_pred, y_true)

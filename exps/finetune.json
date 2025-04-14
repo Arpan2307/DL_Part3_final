@@ -15,7 +15,11 @@
     "seed": [42],
     "log_name": "experiment_without_pic",
     "prefix": "run1",
-    "convnet_type": "resnet",
+    "convnet_type": "resnet18",
     "shuffle": true,
-    "contrast_T": 0.08
+    "contrast_T": 0.08,
+    "memory_size": 2000,
+    "ckpt_num": 5,
+    "ckpt_path": "./checkpoints/fcs",
+    "is_task0": true
 }
