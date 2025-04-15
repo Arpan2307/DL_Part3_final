@@ -109,12 +109,19 @@ def _set_device(args):
     gpus = []
     for dev in args["device"]:
         if isinstance(dev, int):
-            gpus.append(torch.device(f"cuda:{dev}"))
-        elif dev == -1 or dev == "cpu":
-            gpus.append(torch.device("cpu"))
+            if dev == -1:
+                gpus.append(torch.device("cpu"))
+            else:
+                gpus.append(torch.device(f"cuda:{dev}"))
+        elif isinstance(dev, str):
+            try:
+                gpus.append(torch.device(dev))
+            except Exception as e:
+                raise ValueError(f"Unsupported device string: {dev}") from e
         else:
-            raise ValueError(f"Unsupported device: {dev}")
+            raise ValueError(f"Unsupported device type: {type(dev)} — {dev}")
     args["device"] = gpus
+
 
 
 def _set_random():
