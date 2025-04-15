@@ -108,7 +108,9 @@ def compute_average_forgetting(acc_matrix):
 def _set_device(args):
     gpus = []
     for dev in args["device"]:
-        if isinstance(dev, int):
+        if isinstance(dev, torch.device):
+            gpus.append(dev)
+        elif isinstance(dev, int):
             if dev == -1:
                 gpus.append(torch.device("cpu"))
             else:
@@ -121,6 +123,7 @@ def _set_device(args):
         else:
             raise ValueError(f"Unsupported device type: {type(dev)} — {dev}")
     args["device"] = gpus
+
 
 
 
