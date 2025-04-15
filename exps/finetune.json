@@ -11,7 +11,7 @@
     "step_size": 30,
     "gamma": 0.1,
     "num_workers": 4,
-    "device": [0],
+    "device": ["cuda:0"],
     "seed": [42],
     "log_name": "experiment_without_pic",
     "prefix": "run1",
