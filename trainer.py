@@ -52,9 +52,6 @@ def _train(args):
         ],
     )
 
-    args["dataset"] = "cifar100"
-    args["log_name"] = "experiment_without_pic"
-
     _set_random()
     _set_device(args)
     print_args(args)
@@ -69,64 +66,59 @@ def _train(args):
 
     model = factory.get_model(args["model_name"], args)
 
-    cnn_curve = {"top1": [], "top5": []}
-    task_acc = []
+    acc_matrix = []
 
     for task in range(data_manager.nb_tasks):
-        logging.info("All params: {}".format(count_parameters(model._network)))
-        logging.info("Trainable params: {}".format(count_parameters(model._network, True)))
-
+        logging.info(f"Training Task {task}")
         model.incremental_train(data_manager)
-        cnn_accy, _ = model.eval_task()
 
-        top1_acc = cnn_accy["top1"]
-        task_acc.append(top1_acc)
+        acc_per_task = []
+        for eval_task in range(task + 1):
+            acc, _ = model.eval_task(eval_task)
+            acc_per_task.append(acc["top1"])
+            logging.info(f" Eval Task {eval_task} -> Top-1 Acc: {acc['top1']:.2f}")
 
-        logging.info("Task {} - CNN top1: {:.2f}".format(task, top1_acc))
-        cnn_curve["top1"].append(top1_acc)
-        cnn_curve["top5"].append(cnn_accy["top5"])
-
+        acc_matrix.append(acc_per_task)
         model.after_task()
 
-        if args["is_task0"]:
+        if args.get("is_task0", False):
             break
 
-    avg_forgetting = compute_average_forgetting(task_acc)
+    avg_forgetting = compute_average_forgetting(acc_matrix)
     logging.info(f"Average Forgetting: {avg_forgetting:.2f}")
     return avg_forgetting
 
 
-def compute_average_forgetting(acc_list):
+def compute_average_forgetting(acc_matrix):
+    # acc_matrix[t][i] = accuracy on task i after learning task t
+    num_tasks = len(acc_matrix)
     forgetting = []
-    for i in range(1, len(acc_list)):
-        max_prev = max(acc_list[:i])
-        forgetting.append(max_prev - acc_list[i])
+
+    for task in range(num_tasks - 1):
+        acc_list = [acc_matrix[t][task] for t in range(task + 1, num_tasks)]
+        if not acc_list:
+            continue
+        max_acc = max(acc_matrix[t][task] for t in range(task + 1))
+        final_acc = acc_matrix[-1][task]
+        forgetting.append(max_acc - final_acc)
+
     return sum(forgetting) / len(forgetting) if forgetting else 0.0
 
 
 def _set_device(args):
-    device_type = args["device"]
     gpus = []
-
-    for dev in device_type:
-        if isinstance(dev, torch.device):
-            gpu_device = dev
-        elif isinstance(dev, str) and dev.startswith("cuda"):
-            gpu_device = torch.device(dev)
+    for dev in args["device"]:
+        if isinstance(dev, int):
+            gpus.append(torch.device(f"cuda:{dev}"))
         elif dev == -1 or dev == "cpu":
-            gpu_device = torch.device("cpu")
-        elif isinstance(dev, int):
-            gpu_device = torch.device(f"cuda:{dev}")
+            gpus.append(torch.device("cpu"))
         else:
-            raise ValueError(f"Invalid device specifier: {dev}")
-        gpus.append(gpu_device)
-
+            raise ValueError(f"Unsupported device: {dev}")
     args["device"] = gpus
 
 
 def _set_random():
     torch.manual_seed(1)
-    torch.cuda.manual_seed(1)
     torch.cuda.manual_seed_all(1)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -134,4 +126,4 @@ def _set_random():
 
 def print_args(args):
     for key, value in args.items():
-        logging.info("{}: {}".format(key, value))
+        logging.info(f"{key}: {value}")
