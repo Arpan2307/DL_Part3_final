@@ -6,7 +6,6 @@ from utils import factory
 from utils.data_manager import DataManager
 from utils.toolkit import count_parameters
 import os
-import json
 
 
 def train(args):
@@ -27,21 +26,24 @@ def train(args):
 def _train(args):
     init_cls = 0 if args["init_cls"] == args["increment"] else args["init_cls"]
     log_dir = args["log_dir"]
-    logs_name = "{}/{}/{}/{}/{}".format(args["model_name"], args["dataset"], init_cls, args["increment"], args['log_name'])
-    logs_name = os.path.join(log_dir, logs_name)
-
-    os.makedirs(logs_name, exist_ok=True)
-
-    logfilename = os.path.join(log_dir, "{}/{}/{}/{}/{}/{}_{}_{}".format(
+    logs_name = os.path.join(
+        log_dir,
         args["model_name"],
         args["dataset"],
-        init_cls,
-        args["increment"],
-        args['log_name'],
-        args["prefix"],
-        args["seed"],
-        args["convnet_type"],
-    ))
+        str(init_cls),
+        str(args["increment"]),
+        args['log_name']
+    )
+    os.makedirs(logs_name, exist_ok=True)
+
+    logfilename = os.path.join(
+        logs_name,
+        f"{args['prefix']}_{args['seed']}_{args['convnet_type']}"
+    )
+
+    # Reset logging handlers to avoid duplicate logs
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -52,7 +54,7 @@ def _train(args):
         ],
     )
 
-    _set_random()
+    _set_random(args["seed"])
     _set_device(args)
     print_args(args)
 
@@ -65,6 +67,7 @@ def _train(args):
     )
 
     model = factory.get_model(args["model_name"], args)
+    count_parameters(model)
 
     acc_matrix = []
 
@@ -90,50 +93,48 @@ def _train(args):
 
 
 def compute_average_forgetting(acc_matrix):
-    # acc_matrix[t][i] = accuracy on task i after learning task t
     num_tasks = len(acc_matrix)
     forgetting = []
 
     for task in range(num_tasks - 1):
-        acc_list = [acc_matrix[t][task] for t in range(task + 1, num_tasks)]
+        acc_list = [acc_matrix[t][task] for t in range(task + 1, num_tasks) if task < len(acc_matrix[t])]
         if not acc_list:
             continue
-        max_acc = max(acc_matrix[t][task] for t in range(task + 1))
-        final_acc = acc_matrix[-1][task]
+        max_acc = max([acc_matrix[t][task] for t in range(task + 1) if task < len(acc_matrix[t])])
+        final_acc = acc_matrix[-1][task] if task < len(acc_matrix[-1]) else 0
         forgetting.append(max_acc - final_acc)
 
     return sum(forgetting) / len(forgetting) if forgetting else 0.0
 
 
 def _set_device(args):
+    devs = args["device"]
     gpus = []
-    for dev in args["device"]:
+
+    if not isinstance(devs, list):
+        devs = [devs]
+
+    for dev in devs:
         if isinstance(dev, torch.device):
             gpus.append(dev)
         elif isinstance(dev, int):
-            if dev == -1:
-                gpus.append(torch.device("cpu"))
-            else:
-                gpus.append(torch.device(f"cuda:{dev}"))
+            gpus.append(torch.device("cpu") if dev == -1 else torch.device(f"cuda:{dev}"))
         elif isinstance(dev, str):
-            try:
-                gpus.append(torch.device(dev))
-            except Exception as e:
-                raise ValueError(f"Unsupported device string: {dev}") from e
+            gpus.append(torch.device(dev))
         else:
             raise ValueError(f"Unsupported device type: {type(dev)} — {dev}")
+
     args["device"] = gpus
 
 
-
-
-def _set_random():
-    torch.manual_seed(1)
-    torch.cuda.manual_seed_all(1)
+def _set_random(seed=1):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
 
 def print_args(args):
+    logging.info("Arguments:")
     for key, value in args.items():
         logging.info(f"{key}: {value}")
