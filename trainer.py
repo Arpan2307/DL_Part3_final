@@ -14,7 +14,7 @@ def train(args):
 
     for seed in seed_list:
         args["seed"] = seed
-        args["device"] = device
+        args["device"] = copy.deepcopy(args["device"])
         _train(args)
 
 
@@ -95,18 +95,21 @@ def _set_device(args):
     gpus = []
 
     for dev in device_type:
-        # Use a different variable name
-        if isinstance(dev, str) and dev.startswith("cuda:"):
-            gpu_device = torch.device(dev)  # Use the string as is
-        elif dev == -1:
+        if isinstance(dev, torch.device):
+            gpu_device = dev  # Already a device object, use as is
+        elif isinstance(dev, str) and dev.startswith("cuda"):
+            gpu_device = torch.device(dev)  # Valid string, use directly
+        elif dev == -1 or dev == "cpu":
             gpu_device = torch.device("cpu")
-        else:
+        elif isinstance(dev, int):
             gpu_device = torch.device(f"cuda:{dev}")
-
-
+        else:
+            raise ValueError(f"Invalid device specifier: {dev}")
+        
         gpus.append(gpu_device)
 
     args["device"] = gpus
+
 
 
 def _set_random():
