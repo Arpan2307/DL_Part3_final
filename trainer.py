@@ -67,7 +67,7 @@ def _train(args):
     )
 
     model = factory.get_model(args["model_name"], args)
-    count_parameters(model)
+    # count_parameters(model)
 
     acc_matrix = []
 
