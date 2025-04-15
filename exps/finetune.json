@@ -21,5 +21,5 @@
     "memory_size": 2000,
     "ckpt_num": 5,
     "ckpt_path": "./checkpoints/fcs",
-    "is_task0": true
+    "is_task0": false
 }
