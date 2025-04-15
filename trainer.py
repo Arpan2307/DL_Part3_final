@@ -87,6 +87,7 @@ def _train(args):
         if args.get("is_task0", False):
             break
 
+    logging.info(f"acc_matrix: {acc_matrix}")  # Add this line to debug acc_matrix values
     avg_forgetting = compute_average_forgetting(acc_matrix)
     logging.info(f"Average Forgetting: {avg_forgetting:.2f}")
     return avg_forgetting
@@ -97,12 +98,13 @@ def compute_average_forgetting(acc_matrix):
     forgetting = []
 
     for task in range(num_tasks - 1):
+        # Maximum accuracy on task 'task' after it was first learned
         acc_list = [acc_matrix[t][task] for t in range(task + 1, num_tasks) if task < len(acc_matrix[t])]
         if not acc_list:
             continue
         max_acc = max([acc_matrix[t][task] for t in range(task + 1) if task < len(acc_matrix[t])])
-        final_acc = acc_matrix[-1][task] if task < len(acc_matrix[-1]) else 0
-        forgetting.append(max_acc - final_acc)
+        last_acc = acc_matrix[-1][task] if task < len(acc_matrix[-1]) else 0
+        forgetting.append(max_acc - last_acc)
 
     return sum(forgetting) / len(forgetting) if forgetting else 0.0
 
