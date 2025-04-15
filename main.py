@@ -3,13 +3,20 @@ import argparse
 import logging
 import matplotlib.pyplot as plt
 from trainer import train
+import copy
 
 
 def main():
+    # Set up argument parsing and logging
     args = setup_parser().parse_args()
     param = load_json(args.config)
     args = vars(args)
     args.update(param)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+    )
 
     temperatures = [0.08, 0.2, 0.7]
     results = run_temperature_experiments(args, temperatures)
@@ -17,9 +24,12 @@ def main():
 
 
 def load_json(settings_path):
-    with open(settings_path) as data_file:
-        param = json.load(data_file)
-    return param
+    try:
+        with open(settings_path) as data_file:
+            return json.load(data_file)
+    except FileNotFoundError:
+        logging.error(f"Config file not found: {settings_path}")
+        exit(1)
 
 
 def setup_parser():
@@ -32,9 +42,11 @@ def setup_parser():
 def run_temperature_experiments(args, temperatures):
     results = []
     for temp in temperatures:
-        args["contrast_T"] = temp
+        # Create a deep copy of args to avoid modifying the original
+        args_temp = copy.deepcopy(args)
+        args_temp["contrast_T"] = temp
         logging.info(f"\nRunning experiment with temperature: {temp}")
-        avg_forgetting = train(args)
+        avg_forgetting = train(args_temp)
         logging.info(f"Temperature: {temp}, Average Forgetting: {avg_forgetting:.2f}")
         results.append((temp, avg_forgetting))
     return results
@@ -49,7 +61,9 @@ def plot_temperature_vs_forgetting(results):
     plt.ylabel('Average Forgetting')
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("temperature_vs_forgetting.png")
+    save_path = "temperature_vs_forgetting.png"
+    plt.savefig(save_path)
+    logging.info(f"Saved plot to {save_path}")
     plt.show()
 
 
