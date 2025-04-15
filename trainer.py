@@ -19,16 +19,15 @@ def train(args):
 
 
 def _train(args):
-
-    init_cls = 0 if args ["init_cls"] == args["increment"] else args["init_cls"]
+    init_cls = 0 if args["init_cls"] == args["increment"] else args["init_cls"]
     log_dir = args["log_dir"]
-    logs_name = "{}/{}/{}/{}/{}".format(args["model_name"],args["dataset"], init_cls, args['increment'],args['log_name'])
-    logs_name = os.path.join(log_dir,logs_name)
+    logs_name = "{}/{}/{}/{}/{}".format(args["model_name"], args["dataset"], init_cls, args['increment'], args['log_name'])
+    logs_name = os.path.join(log_dir, logs_name)
 
     if not os.path.exists(logs_name):
         os.makedirs(logs_name)
 
-    logfilename =os.path.join(log_dir,"{}/{}/{}/{}/{}/{}_{}_{}".format(
+    logfilename = os.path.join(log_dir, "{}/{}/{}/{}/{}/{}_{}_{}".format(
         args["model_name"],
         args["dataset"],
         init_cls,
@@ -37,7 +36,7 @@ def _train(args):
         args["prefix"],
         args["seed"],
         args["convnet_type"],
-    ) )
+    ))
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(filename)s] => %(message)s",
@@ -64,6 +63,7 @@ def _train(args):
     model = factory.get_model(args["model_name"], args)
 
     cnn_curve = {"top1": [], "top5": []}
+    all_task_accuracies = []  # Track accuracy for each task
 
     for task in range(data_manager.nb_tasks):
         logging.info("All params: {}".format(count_parameters(model._network)))
@@ -85,10 +85,30 @@ def _train(args):
         cnn_accy, nme_accy = model.eval_task(only_new=True)
         cnn_accy, nme_accy = model.eval_task(only_old=True)
 
-        
+        # Track task performance for forgetting calculation
+        all_task_accuracies.append(cnn_accy["top1"])
+
         model.after_task()
-        if args["is_task0"] :
-            break 
+        if args["is_task0"]:
+            break
+
+    # Calculate average forgetting after training
+    avg_forgetting = calculate_average_forgetting(all_task_accuracies)
+    logging.info(f"Average Forgetting: {avg_forgetting}")
+    
+    return avg_forgetting
+
+
+def calculate_average_forgetting(accuracies):
+    """
+    Calculate average forgetting across tasks.
+    Forgetting is the drop in accuracy from previous tasks.
+    """
+    forgetting = []
+    for i in range(1, len(accuracies)):
+        forgetting.append(max(0, accuracies[i-1] - accuracies[i]))
+    return sum(forgetting) / len(forgetting) if forgetting else 0.0
+
 
 def _set_device(args):
     device_type = args["device"]
@@ -111,7 +131,6 @@ def _set_device(args):
     args["device"] = gpus
 
 
-
 def _set_random():
     torch.manual_seed(1)
     torch.cuda.manual_seed(1)
@@ -124,41 +143,3 @@ def print_args(args):
     for key, value in args.items():
         logging.info("{}: {}".format(key, value))
 
-# Automate experiments for different temperature values and log results.
-def run_temperature_experiments(args, temperatures):
-    results = []
-    for temp in temperatures:
-        args["contrast_T"] = temp
-        logging.info(f"Running experiment with temperature: {temp}")
-        train(args)
-        # Assuming average forgetting is logged or calculated in train
-        avg_forgetting = calculate_average_forgetting()  # Placeholder function
-        results.append((temp, avg_forgetting))
-    return results
-
-# Function to calculate average forgetting based on logged results.
-def calculate_average_forgetting():
-    # Placeholder logic for calculating average forgetting
-    # Replace with actual computation based on task performance logs
-    return 0.0  # Example value
-
-# Function to plot temperature vs. average forgetting.
-def plot_temperature_vs_forgetting(results):
-    import matplotlib.pyplot as plt
-
-    temperatures, forgetting = zip(*results)
-    plt.plot(temperatures, forgetting, marker='o')
-    plt.title('Temperature vs. Average Forgetting')
-    plt.xlabel('Temperature')
-    plt.ylabel('Average Forgetting')
-    plt.grid(True)
-    plt.show()
-
-# Example usage
-if __name__ == "__main__":
-    with open("./exps/finetune.json", "r") as f:
-        args = json.load(f)
-
-    temperatures = [0.08, 0.2, 0.7]
-    results = run_temperature_experiments(args, temperatures)
-    plot_temperature_vs_forgetting(results)  # Placeholder for plotting function
