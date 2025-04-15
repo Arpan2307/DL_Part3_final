@@ -8,24 +8,29 @@ from utils.toolkit import count_parameters
 import os
 import json
 
+
 def train(args):
     seed_list = args["seed"] if isinstance(args["seed"], list) else [args["seed"]]
     device = copy.deepcopy(args["device"])
 
+    avg_forgetting_all_seeds = []
+
     for seed in seed_list:
         args["seed"] = seed
-        args["device"] = copy.deepcopy(args["device"])
-        _train(args)
+        args["device"] = copy.deepcopy(device)
+        avg_forgetting = _train(args)
+        avg_forgetting_all_seeds.append(avg_forgetting)
+
+    return sum(avg_forgetting_all_seeds) / len(avg_forgetting_all_seeds)
 
 
 def _train(args):
     init_cls = 0 if args["init_cls"] == args["increment"] else args["init_cls"]
     log_dir = args["log_dir"]
-    logs_name = "{}/{}/{}/{}/{}".format(args["model_name"], args["dataset"], init_cls, args['increment'], args['log_name'])
+    logs_name = "{}/{}/{}/{}/{}".format(args["model_name"], args["dataset"], init_cls, args["increment"], args['log_name'])
     logs_name = os.path.join(log_dir, logs_name)
 
-    if not os.path.exists(logs_name):
-        os.makedirs(logs_name)
+    os.makedirs(logs_name, exist_ok=True)
 
     logfilename = os.path.join(log_dir, "{}/{}/{}/{}/{}/{}_{}_{}".format(
         args["model_name"],
@@ -37,6 +42,7 @@ def _train(args):
         args["seed"],
         args["convnet_type"],
     ))
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(filename)s] => %(message)s",
@@ -46,13 +52,13 @@ def _train(args):
         ],
     )
 
-    # Updated the dataset to CIFAR-100 and adjusted the log name for the experiment.
     args["dataset"] = "cifar100"
     args["log_name"] = "experiment_without_pic"
 
     _set_random()
     _set_device(args)
     print_args(args)
+
     data_manager = DataManager(
         args["dataset"],
         args["shuffle"],
@@ -60,53 +66,41 @@ def _train(args):
         args["init_cls"],
         args["increment"],
     )
+
     model = factory.get_model(args["model_name"], args)
 
     cnn_curve = {"top1": [], "top5": []}
-    all_task_accuracies = []  # Track accuracy for each task
+    task_acc = []
 
     for task in range(data_manager.nb_tasks):
         logging.info("All params: {}".format(count_parameters(model._network)))
-        logging.info(
-            "Trainable params: {}".format(count_parameters(model._network, True))
-        )
+        logging.info("Trainable params: {}".format(count_parameters(model._network, True)))
+
         model.incremental_train(data_manager)
-        cnn_accy, nme_accy = model.eval_task()
+        cnn_accy, _ = model.eval_task()
 
-        logging.info("CNN: {}".format(cnn_accy["grouped"]))
-        logging.info("NME: {}".format(nme_accy["grouped"]))
+        top1_acc = cnn_accy["top1"]
+        task_acc.append(top1_acc)
 
-        cnn_curve["top1"].append(cnn_accy["top1"])
+        logging.info("Task {} - CNN top1: {:.2f}".format(task, top1_acc))
+        cnn_curve["top1"].append(top1_acc)
         cnn_curve["top5"].append(cnn_accy["top5"])
 
-        logging.info("CNN top1 curve: {}".format(cnn_curve["top1"]))
-        logging.info("CNN top5 curve: {}".format(cnn_curve["top5"]))
-        
-        cnn_accy, nme_accy = model.eval_task(only_new=True)
-        cnn_accy, nme_accy = model.eval_task(only_old=True)
-
-        # Track task performance for forgetting calculation
-        all_task_accuracies.append(cnn_accy["top1"])
-
         model.after_task()
+
         if args["is_task0"]:
             break
 
-    # Calculate average forgetting after training
-    avg_forgetting = calculate_average_forgetting(all_task_accuracies)
-    logging.info(f"Average Forgetting: {avg_forgetting}")
-    
+    avg_forgetting = compute_average_forgetting(task_acc)
+    logging.info(f"Average Forgetting: {avg_forgetting:.2f}")
     return avg_forgetting
 
 
-def calculate_average_forgetting(accuracies):
-    """
-    Calculate average forgetting across tasks.
-    Forgetting is the drop in accuracy from previous tasks.
-    """
+def compute_average_forgetting(acc_list):
     forgetting = []
-    for i in range(1, len(accuracies)):
-        forgetting.append(max(0, accuracies[i-1] - accuracies[i]))
+    for i in range(1, len(acc_list)):
+        max_prev = max(acc_list[:i])
+        forgetting.append(max_prev - acc_list[i])
     return sum(forgetting) / len(forgetting) if forgetting else 0.0
 
 
@@ -116,16 +110,15 @@ def _set_device(args):
 
     for dev in device_type:
         if isinstance(dev, torch.device):
-            gpu_device = dev  # Already a device object, use as is
+            gpu_device = dev
         elif isinstance(dev, str) and dev.startswith("cuda"):
-            gpu_device = torch.device(dev)  # Valid string, use directly
+            gpu_device = torch.device(dev)
         elif dev == -1 or dev == "cpu":
             gpu_device = torch.device("cpu")
         elif isinstance(dev, int):
             gpu_device = torch.device(f"cuda:{dev}")
         else:
             raise ValueError(f"Invalid device specifier: {dev}")
-        
         gpus.append(gpu_device)
 
     args["device"] = gpus
@@ -142,4 +135,3 @@ def _set_random():
 def print_args(args):
     for key, value in args.items():
         logging.info("{}: {}".format(key, value))
-
