@@ -71,23 +71,33 @@ def _train(args):
 
     acc_matrix = []
 
-    for task in range(data_manager.nb_tasks):
-        logging.info(f"Training Task {task}")
+    is_task0_only = args.get("is_task0", False)
+    logging.info(f"is_task0: {is_task0_only}")
+
+    if is_task0_only:
+        logging.info("Training only on Task 0 due to is_task0=True")
         model.incremental_train(data_manager)
 
-        acc_per_task = []
-        for eval_task in range(task + 1):
-            acc, _ = model.eval_task(eval_task)
-            acc_per_task.append(acc["top1"])
-            logging.info(f" Eval Task {eval_task} -> Top-1 Acc: {acc['top1']:.2f}")
+        acc, _ = model.eval_task(0)
+        logging.info(f" Eval Task 0 -> Top-1 Acc: {acc['top1']:.2f}")
+        acc_matrix.append([acc["top1"]])
 
-        acc_matrix.append(acc_per_task)
         model.after_task()
+    else:
+        for task in range(data_manager.nb_tasks):
+            logging.info(f"Training Task {task}")
+            model.incremental_train(data_manager)
 
-        if args.get("is_task0", False):
-            break
+            acc_per_task = []
+            for eval_task in range(task + 1):
+                acc, _ = model.eval_task(eval_task)
+                acc_per_task.append(acc["top1"])
+                logging.info(f" Eval Task {eval_task} -> Top-1 Acc: {acc['top1']:.2f}")
 
-    logging.info(f"acc_matrix: {acc_matrix}")  # Add this line to debug acc_matrix values
+            acc_matrix.append(acc_per_task)
+            model.after_task()
+
+    logging.info(f"acc_matrix: {acc_matrix}")
     avg_forgetting = compute_average_forgetting(acc_matrix)
     logging.info(f"Average Forgetting: {avg_forgetting:.2f}")
     return avg_forgetting
@@ -98,7 +108,6 @@ def compute_average_forgetting(acc_matrix):
     forgetting = []
 
     for task in range(num_tasks - 1):
-        # Maximum accuracy on task 'task' after it was first learned
         acc_list = [acc_matrix[t][task] for t in range(task + 1, num_tasks) if task < len(acc_matrix[t])]
         if not acc_list:
             continue
